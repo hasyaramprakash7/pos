@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -29,48 +29,104 @@ const STATUS_COLORS = {
   Kitchen: "#007BFF", // Blue
   Ready: "#28A745", // Green
   Served: "#17A2B8", // Cyan/Info
-  Billed: "#6C757D", // Gray
-  Completed: "#343A40", // Dark Gray
+  Billed: "#343A40", // Dark Gray (Final Status Color - Visible for Vendor/Billing reports)
+  // 'Completed' removed from lifecycle
 };
 
+// Define minimal Order structure for prop type checking
+interface Order {
+  _id: string;
+  tableNumber: number;
+  status: string;
+  server: string;
+  vendorId: string;
+  totalAmount: number;
+  createdAt: string;
+  serverName?: string;
+  serverRole?: string;
+  notes?: string;
+  items: {
+    menuItemId: string;
+    name: string;
+    quantity: number;
+    itemTableNumber: number;
+    addons?: string[];
+    notes?: string;
+    _id: string;
+  }[];
+}
+
 // --- Order Card Component ---
-const OrderCard = ({ order, role, onUpdate }) => {
-  // Determine the next logical status and the button text
+const OrderCard: React.FC<{
+  order: Order;
+  role: string;
+  onUpdate: (orderId: string, newStatus: string) => void;
+}> = ({ order, role, onUpdate }) => {
   let nextStatus = "";
   let buttonText = "";
-  let buttonColor = "#005612"; // Default green for actions
+  let buttonColor = "#005612";
 
-  // 📢 Roles and transitions logic
-  if (
+  const isVendor = role === "Vendor";
+  const isBilling = role === "Billing";
+  const isServer = role === "Server";
+
+  // Logic for action button: Stops at 'Billed'
+  if (isVendor) {
+    switch (order.status) {
+      case "Pending":
+        nextStatus = "Kitchen";
+        buttonText = "Send to Kitchen";
+        buttonColor = "#007BFF";
+        break;
+      case "Kitchen":
+        nextStatus = "Ready";
+        buttonText = "Mark Ready";
+        buttonColor = "#28A745";
+        break;
+      case "Ready":
+        nextStatus = "Served";
+        buttonText = "Mark Served";
+        buttonColor = "#17A2B8";
+        break;
+      case "Served":
+        nextStatus = "Billed";
+        buttonText = "Finalize Bill";
+        buttonColor = "#BFA440";
+        break;
+      case "Billed": // FINAL STATUS - No further transition
+        nextStatus = "";
+        buttonText = "Billed - Final Stage";
+        buttonColor = STATUS_COLORS.Billed;
+        break;
+      default:
+        break;
+    }
+  } else if (
     role === "Kitchen" &&
     (order.status === "Pending" || order.status === "Kitchen")
   ) {
     nextStatus = "Ready";
     buttonText = "Mark Ready";
+    buttonColor = "#28A745";
   } else if (
-    (role === "Billing" || role === "Vendor") &&
+    isBilling &&
     (order.status === "Ready" || order.status === "Served")
   ) {
-    // Only Billing/Vendor can finalize the bill
     nextStatus = "Billed";
     buttonText = "Finalize Bill";
-    buttonColor = "#BFA440"; // Gold color for billing
-  } else if (role === "Server" && order.status === "Ready") {
+    buttonColor = "#BFA440";
+  } else if (isServer && order.status === "Ready") {
     nextStatus = "Served";
     buttonText = "Mark Served";
-    buttonColor = "#17A2B8"; // Info/Cyan color
+    buttonColor = "#17A2B8";
   }
 
-  // Staff status display
   const statusBg = STATUS_COLORS[order.status] || "#ccc";
-
-  // --- Enhanced Display Details ---
   const placingStaffName = order.serverName || "Staff";
   const placingStaffRole =
     order.serverRole || (order.server === order.vendorId ? "Vendor" : "Server");
   const shortServerId = order.server ? order.server.slice(-4) : "N/A";
 
-  // Date and Time Formatting (using the schema's 'createdAt' timestamp)
   const orderTime = order.createdAt
     ? new Date(order.createdAt).toLocaleString("en-IN", {
         day: "numeric",
@@ -80,9 +136,9 @@ const OrderCard = ({ order, role, onUpdate }) => {
       })
     : "N/A";
 
-  // Get Order-Level Notes (from the main order document)
   const orderNotes = order.notes;
-  // ------------------------------------------------------------------------
+
+  const isFinalized = order.status === "Billed"; // Check against the new final status
 
   return (
     <View style={styles.card}>
@@ -95,7 +151,6 @@ const OrderCard = ({ order, role, onUpdate }) => {
       >
         <View>
           <Text style={styles.tableText}>Table: {order.tableNumber}</Text>
-          {/* Display Name/Role and short ID */}
           <Text style={styles.serverText}>
             By:{" "}
             <Text
@@ -107,8 +162,8 @@ const OrderCard = ({ order, role, onUpdate }) => {
               ]}
             >
               {placingStaffRole}
-            </Text>{" "}
-            ({placingStaffName} - ...{shortServerId})
+            </Text>
+            {` (${placingStaffName} - ...${shortServerId})`}
           </Text>
         </View>
         <Text style={[styles.statusTag, { backgroundColor: statusBg }]}>
@@ -119,8 +174,8 @@ const OrderCard = ({ order, role, onUpdate }) => {
       {/* Time and Order-Level Notes Section */}
       <View style={styles.timeAndNotesContainer}>
         <Text style={styles.orderTimeText}>
-          <Ionicons name="time-outline" size={14} color="#6C757D" /> Ordered At:{" "}
-          {orderTime}
+          <Ionicons name="time-outline" size={14} color="#6C757D" />
+          {` Ordered At: ${orderTime}`}
         </Text>
         {orderNotes ? (
           <View style={styles.notesBox}>
@@ -129,8 +184,8 @@ const OrderCard = ({ order, role, onUpdate }) => {
                 name="chatbox-ellipses-outline"
                 size={14}
                 color="#856404"
-              />{" "}
-              Order Notes:
+              />
+              {` Order Notes:`}
             </Text>
             <Text style={styles.notesText}>{orderNotes}</Text>
           </View>
@@ -147,11 +202,11 @@ const OrderCard = ({ order, role, onUpdate }) => {
               <Text style={styles.itemTable}> (T{item.itemTableNumber})</Text>
             </View>
 
-            {/* 📢 NEW: Display Item Addons */}
+            {/* Display Item Addons */}
             {item.addons && item.addons.length > 0 ? (
               <View style={styles.itemAddonsContainer}>
                 <Text style={styles.itemAddonsText}>
-                  + Addons: {item.addons.join(", ")}
+                  {`+ Addons: ${item.addons.join(", ")}`}
                 </Text>
               </View>
             ) : null}
@@ -171,19 +226,19 @@ const OrderCard = ({ order, role, onUpdate }) => {
         <Text style={styles.totalAmount}>
           Total: ₹{Number(order.totalAmount).toFixed(2)}
         </Text>
-        {nextStatus && order.status !== "Completed" ? ( // Disable button if completed
+        {nextStatus && !isFinalized ? (
           <TouchableOpacity
             style={[styles.updateButton, { backgroundColor: buttonColor }]}
             onPress={() => onUpdate(order._id, nextStatus)}
-            disabled={["Billed", "Completed"].includes(order.status)}
+            disabled={isFinalized}
           >
             <Text style={styles.updateButtonText}>{buttonText}</Text>
             <MaterialIcons name="done" size={20} color="#fff" />
           </TouchableOpacity>
         ) : (
           <Text style={styles.noActionText}>
-            {order.status === "Completed"
-              ? "Order Completed"
+            {isFinalized
+              ? "Order Billed & Finalized" // Updated text
               : "Awaiting action"}
           </Text>
         )}
@@ -192,91 +247,242 @@ const OrderCard = ({ order, role, onUpdate }) => {
   );
 };
 
-// --- Main Screen Component ---
+// ------------------------------------------------------------------
+// --- Main Screen Component (Implementing Vendor Tabs) ---
+// ------------------------------------------------------------------
+
 export default function OrderManagementScreen() {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
 
-  const { user } = useSelector((state) => state.auth);
+  const { user } = useSelector((state: RootState) => state.auth);
   const { kitchenOrders, billingOrders, status, error } = useSelector(
-    (state) => state.order
+    (state: RootState) => state.order
   );
 
   const userRole = user?.role;
   const isKitchen = userRole === "Kitchen";
   const isBilling = userRole === "Billing";
   const isServer = userRole === "Server";
+  const isVendor = userRole === "Vendor";
 
-  // 1. Determine which fetch operation to run initially
+  const REPORT_TAB_NAME = "Sales Report";
+  const FINALIZED_TAB_NAME = "Finalized Bills";
+
+  // --- Initial Tab Logic Refinement ---
+  const getInitialTab = (bOrders: Order[]) => {
+    if (isVendor) return "Pending";
+    if (isKitchen) return "Active KOTs";
+
+    // For Billing role, if there are any Billed orders, default to Finalized Bills tab
+    if (isBilling && bOrders.some((o) => o.status === "Billed")) {
+      return FINALIZED_TAB_NAME;
+    }
+    return "Active Bills"; // Default for Billing/Server
+  };
+
+  // Initialize with an educated guess, will be refined in useEffect after fetch
+  const [activeStatusTab, setActiveStatusTab] = useState<string>(
+    getInitialTab(billingOrders as Order[])
+  );
+
   const fetchData = () => {
-    // Kitchen always fetches kitchenOrders
     if (isKitchen) {
       dispatch(fetchKitchenOrders());
-    }
-    // Vendor needs both for a full supervisory view
-    else if (userRole === "Vendor") {
-      dispatch(fetchKitchenOrders()); // Fetch preparation orders
-      dispatch(fetchBillingOrders()); // Fetch service/billing orders
-    }
-    // Billing/Server need data pulled by fetchBillingOrders
-    else {
+    } else if (isVendor) {
+      // Vendor fetches all active lists
+      dispatch(fetchKitchenOrders());
+      dispatch(fetchBillingOrders());
+    } else {
+      // Billing and Server use the Billing endpoint for Ready/Served/Billed orders
       dispatch(fetchBillingOrders());
     }
   };
 
-  // 2. Determine which list to display and if it needs local filtering
-  let listToDisplay = [];
-  let screenTitle = "Order Status Board";
-  let screenSubtitle = "";
+  // Memoize processed and filtered orders
+  const processedOrders = useMemo(() => {
+    let orders: Order[] = [];
+    let title = "Order Status Board";
+    let subtitle = "";
+    let currentTabStatusName = "";
+    let totalBilledAmount = 0;
 
-  if (isKitchen) {
-    listToDisplay = kitchenOrders;
-    screenTitle = "Kitchen KOT View";
-    screenSubtitle = "Orders to be Prepared (Pending & Kitchen)";
-  } else if (isBilling) {
-    // BILLING: Show Ready, Served, Billed, and COMPLETED orders.
-    listToDisplay = billingOrders.filter(
-      (o) => !["Pending", "Kitchen"].includes(o.status)
-    );
-    screenTitle = "Billing and Finalization";
-    screenSubtitle = "Orders Ready, Billed, and Completed";
-  } else if (isServer) {
-    // Server only needs live service orders
-    listToDisplay = billingOrders.filter(
-      (o) => o.status === "Ready" || o.status === "Served"
-    );
-    screenTitle = "Server Pickup & Service";
-    screenSubtitle = "Orders Ready for Pickup / In Service";
-  } else if (userRole === "Vendor") {
-    // VENDOR: Show ALL orders, including 'Completed' for full history/supervision.
-    const allOrders = [...kitchenOrders, ...billingOrders];
+    if (isKitchen) {
+      orders = kitchenOrders as Order[];
+      title = "Kitchen KOT View";
+      subtitle = "Orders to be Prepared (Pending & Kitchen)";
+      currentTabStatusName = "Kitchen";
+    } else if (isVendor) {
+      // Vendor combines and filters by activeStatusTab
+      const allOrders = [...kitchenOrders, ...billingOrders] as Order[];
+      const uniqueOrdersMap = new Map();
+      allOrders.forEach((order) => {
+        uniqueOrdersMap.set(order._id, order);
+      });
+      orders = Array.from(uniqueOrdersMap.values());
 
-    // Use a Map to ensure unique orders (in case of overlap or data duplication)
+      title = "Vendor Supervisory Board";
+
+      // --- VENDOR FILTERING LOGIC ---
+      if (activeStatusTab === REPORT_TAB_NAME || activeStatusTab === "Billed") {
+        // Sales Report/Billed tab shows all Billed orders
+        orders = orders.filter((o) => o.status === "Billed");
+        totalBilledAmount = orders.reduce(
+          (sum, order) => sum + order.totalAmount,
+          0
+        );
+        subtitle = `Billed Orders Total: ₹${totalBilledAmount.toFixed(2)}`;
+        currentTabStatusName = "Billed";
+      } else {
+        orders = orders.filter((o) => o.status === activeStatusTab);
+        subtitle = `Viewing: ${activeStatusTab} - Total: ${orders.length}`;
+        currentTabStatusName = activeStatusTab;
+      }
+
+      // Sort the filtered orders by time (newest first)
+      orders.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    } else if (isBilling || isServer) {
+      // Billing and Server logic
+      orders = billingOrders as Order[];
+      const roleName = isBilling ? "Billing" : "Server";
+
+      // --- BILLING/SERVER FILTERING LOGIC ---
+      if (activeStatusTab.includes(FINALIZED_TAB_NAME)) {
+        // Show Billed orders
+        orders = orders.filter((o) => o.status === "Billed");
+
+        totalBilledAmount = orders.reduce(
+          (sum, order) => sum + order.totalAmount,
+          0
+        );
+
+        title = `${roleName} Finalized Bills`;
+        currentTabStatusName = "Billed";
+        subtitle = `Billed Orders (${
+          orders.length
+        }) | Total: ₹${totalBilledAmount.toFixed(2)}`;
+      } else {
+        // Active Tab (Ready/Served)
+        const activeStatuses = isServer
+          ? ["Ready"] // Server focuses on Ready for pickup
+          : ["Ready", "Served"]; // Billing sees everything up to Served
+
+        orders = orders.filter((o) => activeStatuses.includes(o.status));
+        title = isBilling
+          ? "Billing and Finalization"
+          : "Server Pickup & Service";
+
+        currentTabStatusName = activeStatusTab;
+        subtitle = `Active Bills: ${orders.length}`;
+      }
+
+      // Sort for non-vendor roles
+      orders.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    }
+
+    return {
+      listToDisplay: orders,
+      screenTitle: title,
+      screenSubtitle: subtitle,
+      currentTabStatusName: currentTabStatusName,
+    };
+  }, [userRole, kitchenOrders, billingOrders, activeStatusTab, navigation]);
+
+  const { listToDisplay, screenTitle, screenSubtitle, currentTabStatusName } =
+    processedOrders;
+
+  // Determine all available statuses for the vendor tabs
+  const availableStatuses = useMemo(() => {
+    if (!isVendor) return { statuses: [], counts: {} };
+
+    const allOrders = [...kitchenOrders, ...billingOrders] as Order[];
     const uniqueOrdersMap = new Map();
-    allOrders.forEach((order) => {
-      uniqueOrdersMap.set(order._id, order);
+    allOrders.forEach((order) => uniqueOrdersMap.set(order._id, order));
+
+    const statusCounts: { [key: string]: number } = {
+      Pending: 0,
+      Kitchen: 0,
+      Ready: 0,
+      Served: 0,
+      Billed: 0,
+      [REPORT_TAB_NAME]: 0,
+    };
+
+    Array.from(uniqueOrdersMap.values()).forEach((order: Order) => {
+      if (statusCounts.hasOwnProperty(order.status)) {
+        statusCounts[order.status]++;
+      }
     });
 
-    // Display ALL orders (no status filter)
-    listToDisplay = Array.from(uniqueOrdersMap.values());
+    const statusOrder = ["Pending", "Kitchen", "Ready", "Served", "Billed"];
 
-    screenTitle = "Vendor Supervisory Board";
-    screenSubtitle = `ALL Orders (Live & Completed) - Total: ${listToDisplay.length}`;
-  }
+    let filteredStatuses = statusOrder.filter(
+      (status) => statusCounts[status] > 0
+    );
 
-  // Initial Data Fetch on mount/role change
+    // Add the special 'Sales Report' tab if there are any Billed orders
+    if (statusCounts["Billed"] > 0) {
+      filteredStatuses.push(REPORT_TAB_NAME);
+    }
+
+    // The Sales Report tab count should mirror the Billed count
+    statusCounts[REPORT_TAB_NAME] = statusCounts["Billed"];
+
+    return {
+      statuses: filteredStatuses,
+      counts: statusCounts,
+    };
+  }, [kitchenOrders, billingOrders, isVendor]);
+
+  // Set initial active tab for Vendor/Billing after data loads
+  useEffect(() => {
+    if (isVendor && availableStatuses.statuses.length > 0) {
+      // Ensure the active tab is one of the available status tabs
+      if (!availableStatuses.statuses.includes(activeStatusTab)) {
+        setActiveStatusTab(availableStatuses.statuses[0]);
+      }
+    } else if (isBilling && billingOrders.length > 0) {
+      // Ensure Billing starts on the most relevant tab after fetch
+      if (
+        billingOrders.some((o) => o.status === "Billed") &&
+        activeStatusTab !== FINALIZED_TAB_NAME
+      ) {
+        setActiveStatusTab(FINALIZED_TAB_NAME);
+      } else if (
+        !isServer &&
+        !billingOrders.some((o) => ["Ready", "Served"].includes(o.status)) &&
+        activeStatusTab !== FINALIZED_TAB_NAME
+      ) {
+        // If no active bills, but there are finalized bills, switch to finalized.
+        if (billingOrders.some((o) => o.status === "Billed")) {
+          setActiveStatusTab(FINALIZED_TAB_NAME);
+        }
+      }
+    }
+  }, [
+    isVendor,
+    isBilling,
+    availableStatuses.statuses,
+    activeStatusTab,
+    billingOrders,
+  ]);
+
   useEffect(() => {
     fetchData();
   }, [userRole]);
 
-  // Error Handling
   useEffect(() => {
     if (status === "failed" && error) {
       Alert.alert("Data Error", error);
     }
   }, [status, error]);
 
-  // Handle Refresh
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = () => {
     setRefreshing(true);
@@ -284,8 +490,7 @@ export default function OrderManagementScreen() {
     setTimeout(() => setRefreshing(false), 1500);
   };
 
-  // Handle Status Update
-  const handleUpdateStatus = (orderId, newStatus) => {
+  const handleUpdateStatus = (orderId: string, newStatus: string) => {
     Alert.alert(
       "Confirm Status Change",
       `Set order ${orderId.slice(-4)} status to ${newStatus}?`,
@@ -294,15 +499,21 @@ export default function OrderManagementScreen() {
         {
           text: "Confirm",
           onPress: () => {
-            dispatch(updateOrderStatus({ orderId, newStatus: newStatus }));
+            dispatch(
+              updateOrderStatus({ orderId, newStatus: newStatus as any })
+            );
           },
         },
       ]
     );
   };
 
-  // Render Loading/Error States
-  if (status === "loading" && listToDisplay.length === 0) {
+  if (
+    status === "loading" &&
+    listToDisplay.length === 0 &&
+    !isVendor &&
+    !refreshing
+  ) {
     return (
       <View style={styles.centeredView}>
         <ActivityIndicator size="large" color="#005612" />
@@ -311,12 +522,173 @@ export default function OrderManagementScreen() {
     );
   }
 
+  // --- Vendor Tab Bar Component ---
+  const VendorStatusTabs = () => {
+    return (
+      <View style={styles.tabContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {availableStatuses.statuses.map((statusName) => {
+            const count = availableStatuses.counts[statusName];
+
+            const handlePress = () => {
+              setActiveStatusTab(statusName);
+              // Navigation can be added here if needed, but the filtering is local
+            };
+
+            return (
+              <TouchableOpacity
+                key={statusName}
+                style={[
+                  styles.tabButton,
+                  activeStatusTab === statusName && styles.activeTabButton,
+                ]}
+                onPress={handlePress}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    activeStatusTab === statusName && styles.activeTabText,
+                  ]}
+                >
+                  {`${statusName} (${count})`}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // --- Billing/Server Tab Bar Component ---
+  const OtherRolesTabs = () => {
+    if (!isBilling && !isServer) return null;
+
+    const tabs = isServer
+      ? ["Ready for Service"]
+      : ["Active Bills", FINALIZED_TAB_NAME];
+
+    // Orders that need immediate attention (Ready/Served)
+    const activeCount = billingOrders.filter((o) =>
+      isServer ? o.status === "Ready" : ["Ready", "Served"].includes(o.status)
+    ).length;
+
+    // Orders that are billed (new final state for reporting)
+    const billedCount = billingOrders.filter(
+      (o) => o.status === "Billed"
+    ).length;
+
+    const getCount = (tabName: string) => {
+      if (tabName.includes("Active") || tabName.includes("Ready"))
+        return activeCount;
+      if (tabName.includes("Finalized")) return billedCount;
+      return 0;
+    };
+
+    return (
+      <View style={styles.tabContainer}>
+        {tabs.map((tabName) => {
+          const handlePress = () => {
+            setActiveStatusTab(tabName);
+          };
+
+          return (
+            <TouchableOpacity
+              key={tabName}
+              style={[
+                styles.tabButton,
+                activeStatusTab === tabName && styles.activeTabButton,
+                {
+                  flex: isServer ? 1 : 0,
+                  width: isServer ? "auto" : "45%",
+                  marginHorizontal: isServer ? 5 : "2.5%",
+                },
+              ]}
+              onPress={handlePress}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  activeStatusTab === tabName && styles.activeTabText,
+                  { textAlign: "center" },
+                ]}
+              >
+                {`${tabName} (${getCount(tabName)})`}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  // --- Determine Header Background Color ---
+  const getHeaderBackgroundColor = (statusName: string) => {
+    if (isKitchen) return STATUS_COLORS.Kitchen;
+
+    // Vendor and Billing/Server Finalized Tab
+    if (
+      statusName === "Billed" ||
+      statusName === REPORT_TAB_NAME ||
+      statusName === FINALIZED_TAB_NAME
+    ) {
+      return STATUS_COLORS.Billed;
+    }
+
+    // Default to Active/Ready colors
+    if (
+      statusName === "Ready" ||
+      statusName === "Served" ||
+      statusName.includes("Active") ||
+      statusName.includes("Ready for Service")
+    ) {
+      return STATUS_COLORS.Ready;
+    }
+
+    // Vendor Pending/Kitchen
+    if (STATUS_COLORS[statusName]) return STATUS_COLORS[statusName];
+
+    return "#6c757d"; // Fallback
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{screenTitle}</Text>
         <Text style={styles.headerSubtitle}>{screenSubtitle}</Text>
       </View>
+
+      {/* Display Tabs for Vendor */}
+      {isVendor && <VendorStatusTabs />}
+
+      {/* Display Tabs for Billing/Server */}
+      {(isBilling || isServer) && <OtherRolesTabs />}
+
+      {/* --- Dynamic Status Header for ALL roles --- */}
+      {userRole && !isKitchen && (
+        <Text
+          style={[
+            styles.vendorStatusHeader,
+            { backgroundColor: getHeaderBackgroundColor(currentTabStatusName) },
+          ]}
+        >
+          {currentTabStatusName === "Billed"
+            ? `Finalized Bills (${listToDisplay.length})`
+            : `${activeStatusTab} (${listToDisplay.length})`}
+        </Text>
+      )}
+
+      {/* --- Kitchen Specific Header --- */}
+      {isKitchen && (
+        <Text
+          style={[
+            styles.vendorStatusHeader,
+            { backgroundColor: getHeaderBackgroundColor("Kitchen") },
+          ]}
+        >
+          {`Active KOTs (${listToDisplay.length})`}
+        </Text>
+      )}
 
       <ScrollView
         style={styles.scrollView}
@@ -329,14 +701,16 @@ export default function OrderManagementScreen() {
           />
         }
       >
-        {listToDisplay.length === 0 && status !== "loading" ? (
+        {listToDisplay.length === 0 &&
+        status !== "loading" &&
+        !activeStatusTab.includes("Report") ? (
           <View style={styles.emptyState}>
             <MaterialIcons name="local-dining" size={80} color="#ccc" />
-            <Text style={styles.emptyText}>No Orders Found</Text>
+            <Text style={styles.emptyText}>
+              No Orders in {isKitchen ? "Kitchen Queue" : activeStatusTab}
+            </Text>
             <Text style={styles.emptySubtitle}>
-              {userRole === "Server"
-                ? "All orders are in the kitchen or already served."
-                : "The queue is clear! Refresh to check again."}
+              The queue is clear! Refresh to check again.
             </Text>
           </View>
         ) : (
@@ -353,6 +727,10 @@ export default function OrderManagementScreen() {
     </View>
   );
 }
+
+// ------------------------------------------------------------------
+// --- Styles (Unchanged) ---
+// ------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F0F4F8" },
@@ -379,6 +757,50 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   scrollContent: { padding: 15, alignItems: "center" },
 
+  // --- Vendor Tab Styles ---
+  tabContainer: {
+    height: 50,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#ddd",
+    paddingVertical: 5,
+    paddingLeft: 10,
+    flexDirection: "row",
+    justifyContent: "flex-start",
+  },
+  tabButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    marginHorizontal: 5,
+    borderRadius: 20,
+    backgroundColor: "#f0f0f0",
+    height: 40,
+    justifyContent: "center",
+  },
+  activeTabButton: {
+    backgroundColor: "#005612",
+  },
+  tabText: {
+    color: "#333",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  activeTabText: {
+    color: "#fff",
+  },
+  vendorStatusHeader: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    textAlign: "center",
+    marginBottom: 10,
+    marginHorizontal: 15,
+    borderRadius: 8,
+  },
+  // ---------------------------------
+
   // --- Order Card Styles ---
   card: {
     width: "100%",
@@ -402,7 +824,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   tableText: { fontSize: 18, fontWeight: "bold", color: "#1C1C1C" },
-  serverText: { fontSize: 12, color: "#6c757d", marginTop: 4 },
+  serverText: {
+    fontSize: 12,
+    color: "#6c757d",
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   serverRoleText: { fontWeight: "bold", color: "#005612" },
   statusTag: {
     fontSize: 14,
@@ -424,13 +852,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6C757D",
     marginBottom: 4,
-    gap: 5,
+    flexDirection: "row",
     alignItems: "center",
   },
   notesBox: {
     marginTop: 5,
     padding: 8,
-    backgroundColor: "#FFF3CD", // Light warning color
+    backgroundColor: "#FFF3CD",
     borderRadius: 6,
     borderLeftWidth: 3,
     borderLeftColor: "#FFC107",
@@ -452,7 +880,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  // Style for wrapping item row and notes
   itemRowContainer: {
     marginBottom: 8,
     paddingBottom: 5,
@@ -473,32 +900,32 @@ const styles = StyleSheet.create({
     marginTop: 2,
     paddingHorizontal: 8,
     paddingVertical: 1,
-    backgroundColor: "#D4EDDA", // Light green for additions
+    backgroundColor: "#D4EDDA",
     borderRadius: 4,
     alignSelf: "flex-start",
     maxWidth: "90%",
   },
   itemAddonsText: {
     fontSize: 12,
-    color: "#155724", // Dark green
+    color: "#155724",
     fontStyle: "italic",
     fontWeight: "500",
   },
 
   // UPDATED Style for item-specific NOTES (Bolder background/text)
   itemNotesContainer: {
-    marginLeft: 30, // Aligns notes under the item name
+    marginLeft: 30,
     marginTop: 2,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: "#F8D7DA", // Light Red/Danger for high visibility
+    backgroundColor: "#F8D7DA",
     borderRadius: 4,
     alignSelf: "flex-start",
     maxWidth: "90%",
   },
   itemNotesText: {
     fontSize: 13,
-    color: "#721C24", // Dark Red/Maroon
+    color: "#721C24",
     fontStyle: "italic",
     fontWeight: "500",
   },

@@ -25,6 +25,8 @@ type RootStackParamList = {
   MenuItemCRUD: undefined;
   Menu: undefined;
   OrderManagement: undefined;
+  // 📢 NEW: Sales Report Screen must be registered here
+  SalesReports: undefined;
 };
 
 type DashboardScreenProps = StackScreenProps<RootStackParamList, "Dashboard">;
@@ -37,14 +39,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
   const isApprovedText = user?.isApproved ? "Approved" : "Pending Approval";
   const isVendor = user?.role === "Vendor";
 
-  // This is true for all roles needing order management access (Vendor, Server, Kitchen, Billing)
-  // The conditional check is now removed from App.tsx, but this flag is still used here
-  const isOrderStaff =
-    user &&
-    (user.role === "Server" ||
-      user.role === "Kitchen" ||
-      user.role === "Billing" ||
-      user.role === "Vendor");
+  // Check if user is Vendor or Billing for Sales Report access
+  const isVendorOrBilling = isVendor || user?.role === "Billing";
 
   const vendorId = user?.vendorId;
 
@@ -64,9 +60,14 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
     navigation.navigate("Menu");
   };
 
-  // 📢 Handler for Order Management (Now available to all authenticated roles)
+  // Handler for Order Management (Visible to all authenticated roles for supervisory access)
   const handleOrderManager = () => {
     navigation.navigate("OrderManagement");
+  };
+
+  // 📢 NEW: Handler for Sales Reports
+  const handleSalesReports = () => {
+    navigation.navigate("SalesReports");
   };
 
   const copyVendorIdToClipboard = async () => {
@@ -147,7 +148,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
           <Text style={styles.menuButtonText}>View Restaurant Menu</Text>
         </TouchableOpacity>
 
-        {/* 📢 Order Management Button - Visible to all authenticated users (Vendor, Server, Kitchen, Billing) */}
+        {/* Order Management Button - Visible to all authenticated users */}
         <TouchableOpacity
           style={[
             styles.menuButton,
@@ -162,10 +163,30 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
+      {/* --- VENDOR & BILLING ACTIONS (Sales Reports) --- */}
+      {isVendorOrBilling && (
+        <View style={styles.vendorActionsGroup}>
+          <Text style={styles.vendorActionsTitle}>
+            {isVendor ? "Management & Reporting" : "Billing Tools"}
+          </Text>
+
+          {/* 📢 NEW: Sales Report Button (Vendor/Billing Only) */}
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: "#28A745" }]}
+            onPress={handleSalesReports}
+          >
+            <MaterialIcons name="assessment" size={24} color="#fff" />
+            <Text style={styles.actionButtonText}>
+              View Sales Reports & History
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* --- VENDOR-SPECIFIC ACTIONS --- */}
       {isVendor && (
         <View style={styles.vendorActionsGroup}>
-          <Text style={styles.vendorActionsTitle}>Vendor Management Tools</Text>
+          <Text style={styles.vendorActionsTitle}>Vendor Administration</Text>
 
           {/* Menu Item CRUD Button (Vendor-only creation/editing) */}
           <TouchableOpacity

@@ -13,10 +13,11 @@ import {
   Platform,
   Modal,
   Dimensions,
+  KeyboardTypeOptions,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import * as ImagePicker from "expo-image-picker";
-import { Ionicons, MaterialIcons } from "@expo/vector-icons"; // Added MaterialIcons for luxury look
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
@@ -26,13 +27,12 @@ import {
   fetchMenuItems,
   updateMenuItem,
   deleteMenuItem,
-  resetMenuState,
-} from "../store/slices/menuItemSlice"; // CORRECT SLICE IMPORT
+  // resetMenuState, // Not used here, but available
+} from "../store/slices/menuItemSlice";
 import { RootState, AppDispatch } from "../store/store";
-import { MENU_CATEGORIES } from "./constants"; // Assume a constants file for categories
+import { MENU_CATEGORIES } from "./constants"; // Assuming constants file exists
 
 // --- Type Definitions ---
-// Define the structure of a menu item for local state
 type MenuItemForm = {
   name: string;
   description: string;
@@ -42,7 +42,17 @@ type MenuItemForm = {
   isAvailable: boolean;
 };
 
-// Define the root stack param list
+interface MenuItem {
+  _id: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  stock: number;
+  isAvailable: boolean;
+  images: string[];
+}
+
 type AppStackParamList = {
   VendorDashboard: undefined;
   MenuItemCRUD: undefined;
@@ -63,21 +73,45 @@ const initialFormState: MenuItemForm = {
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
+// --- Custom Components & Styles ---
+
+const CustomTextInput = ({
+  label,
+  isRequired = false,
+  ...props
+}: {
+  label: string;
+  isRequired?: boolean;
+  keyboardType?: KeyboardTypeOptions;
+  [key: string]: any;
+}) => (
+  <View style={styles.inputContainer}>
+    <Text style={styles.label}>
+      {label}
+      {isRequired && <Text style={styles.requiredStar}>*</Text>}
+    </Text>
+    <TextInput style={styles.input} placeholderTextColor="#999" {...props} />
+  </View>
+);
+
+// --- Main Component ---
+
 export default function MenuItemCRUDScreen() {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<MenuItemCRUDScreenNavigationProp>();
 
-  // ⚠️ Updated Redux State Selectors
   const {
     items: products,
     status,
     error,
-  } = useSelector((state: RootState) => state.menuItem); // Use 'items' from slice
-  const { vendor } = useSelector((state: RootState) => state.vendorAuth);
+  } = useSelector((state: RootState) => state.menuItem);
+
+  const authUser = useSelector((state: RootState) => state.auth.user);
+  const isVendorOwner = authUser?.role === "Vendor";
   const loading = status === "loading";
 
   const [form, setForm] = useState<MenuItemForm>(initialFormState);
-  const [selectedCategory, setSelectedCategory] = useState(""); // Simplified category state
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [newImageFiles, setNewImageFiles] = useState<
     ImagePicker.ImagePickerAsset[]
   >([]);
@@ -85,22 +119,17 @@ export default function MenuItemCRUDScreen() {
     string[]
   >([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  // Modal State (Simplified for basic category picker)
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // Fetch products on load
   useEffect(() => {
-    if (vendor?._id) {
+    if (authUser?.vendorId) {
       dispatch(fetchMenuItems());
     }
-  }, [dispatch, vendor]);
+  }, [dispatch, authUser?.vendorId]);
 
-  // Error handling
   useEffect(() => {
     if (error && status === "failed") {
       Alert.alert("Error", error);
-      // dispatch(clearError()); // Assuming we don't need clearError if using resetMenuState on logout
     }
   }, [error, status, dispatch]);
 
@@ -121,12 +150,16 @@ export default function MenuItemCRUDScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       quality: 0.8,
-      // Maximum of 5 images allowed by your backend setup
-      selectionLimit: 5 - currentProductImageUrls.length,
+      selectionLimit:
+        5 - (currentProductImageUrls.length + newImageFiles.length),
     });
 
     if (!result.canceled) {
-      setNewImageFiles((prev) => [...prev, ...result.assets]);
+      const assetsToAdd = result.assets.slice(
+        0,
+        5 - (currentProductImageUrls.length + newImageFiles.length)
+      );
+      setNewImageFiles((prev) => [...prev, ...assetsToAdd]);
     }
   };
 
@@ -143,7 +176,15 @@ export default function MenuItemCRUDScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!form.name || !form.price || !form.category) {
+    if (!isVendorOwner) {
+      Alert.alert(
+        "Unauthorized",
+        "Only the Vendor owner can modify menu items."
+      );
+      return;
+    }
+
+    if (!form.name || !form.price || !selectedCategory) {
       Alert.alert(
         "Validation Error",
         "Name, Price, and Category are required."
@@ -167,7 +208,7 @@ export default function MenuItemCRUDScreen() {
     // Set the final category string
     formDataToSend.set("category", selectedCategory);
 
-    // Append new image files
+    // Append NEW image files (Your backend expects these under 'images')
     newImageFiles.forEach((file) => {
       const uriParts = file.uri.split(".");
       const fileType = uriParts[uriParts.length - 1];
@@ -178,16 +219,16 @@ export default function MenuItemCRUDScreen() {
       } as any);
     });
 
-    // For update, append the URLs of images to keep
+    // 🚩 CRITICAL UPDATE: For update, append the URLs of images to keep
+    // We'll use a new field 'imagesToKeep' as per robust backend practices,
+    // assuming your server is configured to check this field for URLs to retain.
     if (editingId && currentProductImageUrls.length > 0) {
       currentProductImageUrls.forEach((url) => {
-        // The backend must be smart enough to distinguish file uploads from URLs
-        // sent as part of the "images" array in the FormData
-        formDataToSend.append("images", url);
+        formDataToSend.append("imagesToKeep", url);
       });
     }
 
-    // Validation check for images
+    // Validation check for images (must have images for creation)
     if (!editingId && newImageFiles.length === 0) {
       Alert.alert(
         "Validation Error",
@@ -196,34 +237,43 @@ export default function MenuItemCRUDScreen() {
       return;
     }
 
+    // Validation check for images (must have at least one image total)
+    if (currentProductImageUrls.length + newImageFiles.length === 0) {
+      Alert.alert("Validation Error", "An item must have at least one image.");
+      return;
+    }
+
     try {
       if (editingId) {
-        // ⚠️ Using the correct update thunk
         await dispatch(
           updateMenuItem({ id: editingId, itemData: formDataToSend })
         ).unwrap();
         Alert.alert("Success", "Menu Item updated!");
       } else {
-        // ⚠️ Using the correct add thunk
         await dispatch(createMenuItem(formDataToSend)).unwrap();
         Alert.alert("Success", "Menu Item added!");
       }
       resetForm();
     } catch (err: any) {
-      // Redux Thunks reject with the payload, which is the error message from the API
-      Alert.alert("Operation Failed", err || "An unknown error occurred.");
+      Alert.alert(
+        "Operation Failed",
+        err.message || "An unknown error occurred."
+      );
     }
   };
 
-  const handleEdit = (item: any) => {
+  const handleEdit = (item: MenuItem) => {
+    if (!isVendorOwner) {
+      Alert.alert("Unauthorized", "Only the Vendor owner can edit menu items.");
+      return;
+    }
     setEditingId(item._id);
 
-    // Populate form fields
     setForm({
       name: item.name || "",
       description: item.description || "",
       price: item.price !== undefined ? String(item.price) : "",
-      category: item.category || "", // Full category string
+      category: item.category || "",
       stock: item.stock !== undefined ? String(item.stock) : "0",
       isAvailable: item.isAvailable,
     });
@@ -234,6 +284,13 @@ export default function MenuItemCRUDScreen() {
   };
 
   const handleDelete = (id: string) => {
+    if (!isVendorOwner) {
+      Alert.alert(
+        "Unauthorized",
+        "Only the Vendor owner can delete menu items."
+      );
+      return;
+    }
     Alert.alert(
       "Confirm Deletion",
       "Are you sure you want to delete this menu item?",
@@ -242,14 +299,12 @@ export default function MenuItemCRUDScreen() {
         {
           text: "Delete",
           style: "destructive",
-          // ⚠️ Using the correct delete thunk
           onPress: () => dispatch(deleteMenuItem(id)),
         },
       ]
     );
   };
 
-  // --- Category Modal Logic (Simplified) ---
   const handleSelectCategory = (value: string) => {
     setSelectedCategory(value);
     setForm((prev) => ({ ...prev, category: value }));
@@ -271,78 +326,86 @@ export default function MenuItemCRUDScreen() {
           <Ionicons name="arrow-back" size={28} color="#005612" />
         </TouchableOpacity>
         <Text style={styles.title}>
-          {editingId ? "Edit Menu Item" : "Create Menu Item"}
+          {isVendorOwner
+            ? editingId
+              ? "Edit Menu Item"
+              : "Create Menu Item"
+            : "View Menu"}
         </Text>
       </View>
 
-      <View style={styles.form}>
-        <Text style={styles.sectionTitle}>Item Details</Text>
-
-        <CustomTextInput
-          label="Name"
-          value={form.name}
-          onChangeText={(v) => handleChange("name", v)}
-          isRequired
-        />
-        <CustomTextInput
-          label="Price (₹)"
-          value={form.price}
-          onChangeText={(v) => handleChange("price", v)}
-          keyboardType="numeric"
-          isRequired
-        />
-        <CustomTextInput
-          label="Stock"
-          value={form.stock}
-          onChangeText={(v) => handleChange("stock", v)}
-          keyboardType="numeric"
-          isRequired
-        />
-        <CustomTextInput
-          label="Description"
-          value={form.description}
-          onChangeText={(v) => handleChange("description", v)}
-          multiline
-        />
-
-        {/* Category Selection */}
-        <Text style={styles.label}>Category*</Text>
-        <TouchableOpacity
-          style={styles.categoryInput}
-          onPress={() => setIsModalVisible(true)}
-        >
-          <Text style={styles.categoryInputText}>{getCategoryLabel()}</Text>
-          <Ionicons name="chevron-forward-outline" size={20} color="#005612" />
-        </TouchableOpacity>
-
-        {/* Availability Switch */}
-        <View style={styles.switchContainer}>
-          <Text style={styles.label}>Available</Text>
-          <Switch
-            value={form.isAvailable}
-            onValueChange={(v) => handleChange("isAvailable", v)}
-            trackColor={{ false: "#ccc", true: "#C5E1A5" }}
-            thumbColor={form.isAvailable ? "#005612" : "#f4f3f4"}
+      {isVendorOwner ? (
+        <View style={styles.form}>
+          <Text style={styles.sectionTitle}>Item Details</Text>
+          <CustomTextInput
+            label="Name"
+            value={form.name}
+            onChangeText={(v: string) => handleChange("name", v)}
+            isRequired
           />
-        </View>
-
-        {/* Image Selection */}
-        <TouchableOpacity
-          style={styles.imageButton}
-          onPress={handlePickImages}
-          disabled={currentProductImageUrls.length + newImageFiles.length >= 5}
-        >
-          <MaterialIcons name="add-a-photo" size={20} color="#fff" />
-          <Text style={styles.buttonText}>
-            Select Images (
-            {currentProductImageUrls.length + newImageFiles.length}/5)
-          </Text>
-        </TouchableOpacity>
-
-        {/* Image Preview */}
-        <View style={styles.imagePreviewContainer}>
-          {[...currentProductImageUrls, ...newImageFiles.map((f) => f.uri)].map(
-            (uri, index) => {
+          <CustomTextInput
+            label="Price (₹)"
+            value={form.price}
+            onChangeText={(v: string) => handleChange("price", v)}
+            keyboardType="numeric"
+            isRequired
+          />
+          <CustomTextInput
+            label="Stock"
+            value={form.stock}
+            onChangeText={(v: string) => handleChange("stock", v)}
+            keyboardType="numeric"
+            isRequired
+          />
+          <CustomTextInput
+            label="Description"
+            value={form.description}
+            onChangeText={(v: string) => handleChange("description", v)}
+            multiline
+          />
+          {/* Category Selection */}
+          <Text style={styles.label}>Category*</Text>
+          <TouchableOpacity
+            style={styles.categoryInput}
+            onPress={() => setIsModalVisible(true)}
+          >
+            <Text style={styles.categoryInputText}>{getCategoryLabel()}</Text>
+            <Ionicons
+              name="chevron-forward-outline"
+              size={20}
+              color="#005612"
+            />
+          </TouchableOpacity>
+          {/* Availability Switch */}
+          <View style={styles.switchContainer}>
+            <Text style={styles.label}>Available</Text>
+            <Switch
+              value={form.isAvailable}
+              onValueChange={(v) => handleChange("isAvailable", v)}
+              trackColor={{ false: "#ccc", true: "#C5E1A5" }}
+              thumbColor={form.isAvailable ? "#005612" : "#f4f3f4"}
+            />
+          </View>
+          {/* Image Selection */}
+          <TouchableOpacity
+            style={styles.imageButton}
+            onPress={handlePickImages}
+            disabled={
+              currentProductImageUrls.length + newImageFiles.length >= 5
+            }
+          >
+            <MaterialIcons name="add-a-photo" size={20} color="#fff" />
+            <Text style={styles.buttonText}>
+              Select Images (
+              {currentProductImageUrls.length + newImageFiles.length}/5)
+            </Text>
+          </TouchableOpacity>
+          {/* Image Preview */}
+          <View style={styles.imagePreviewContainer}>
+            {[
+              ...currentProductImageUrls,
+              ...newImageFiles.map((f) => f.uri),
+            ].map((uri, index) => {
               const isNew = index >= currentProductImageUrls.length;
               return (
                 <View key={uri} style={styles.imageWrapper}>
@@ -361,33 +424,42 @@ export default function MenuItemCRUDScreen() {
                   </TouchableOpacity>
                 </View>
               );
-            }
+            })}
+          </View>
+          {/* Submit/Cancel */}
+          <TouchableOpacity
+            style={styles.submitButton}
+            onPress={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>
+                {editingId ? "Update Item" : "Add Item"}
+              </Text>
+            )}
+          </TouchableOpacity>
+          {editingId && (
+            <TouchableOpacity style={styles.cancelButton} onPress={resetForm}>
+              <Text style={styles.cancelButtonText}>Cancel Edit</Text>
+            </TouchableOpacity>
           )}
         </View>
-
-        {/* Submit/Cancel */}
-        <TouchableOpacity
-          style={styles.submitButton}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>
-              {editingId ? "Update Item" : "Add Item"}
+      ) : (
+        <View style={styles.form}>
+          <Text style={styles.accessDeniedText}>
+            <Text style={{ fontWeight: "bold" }}>
+              Access Granted for Viewing
             </Text>
-          )}
-        </TouchableOpacity>
-        {editingId && (
-          <TouchableOpacity style={styles.cancelButton} onPress={resetForm}>
-            <Text style={styles.cancelButtonText}>Cancel Edit</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
+            . Only the <Text style={{ fontWeight: "bold" }}>Vendor</Text> owner
+            can create, edit, or delete menu items.
+          </Text>
+        </View>
+      )}
       {/* --- My Menu Items List --- */}
       <Text style={styles.listTitle}>My Menu Items ({products.length})</Text>
+
       {status === "loading" && products.length === 0 ? (
         <ActivityIndicator
           size="large"
@@ -395,7 +467,7 @@ export default function MenuItemCRUDScreen() {
           style={{ margin: 20 }}
         />
       ) : (
-        products.map((p) => (
+        products.map((p: MenuItem) => (
           <View key={p._id} style={styles.productCard}>
             <Image
               source={{
@@ -416,24 +488,25 @@ export default function MenuItemCRUDScreen() {
               </Text>
               <Text style={styles.productStock}>Stock: {p.stock}</Text>
             </View>
-            <View style={styles.buttonColumn}>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() => handleEdit(p)}
-              >
-                <MaterialIcons name="edit" size={24} color="#BFA440" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() => handleDelete(p._id)}
-              >
-                <MaterialIcons name="delete" size={24} color="#D32F2F" />
-              </TouchableOpacity>
-            </View>
+            {isVendorOwner && (
+              <View style={styles.buttonColumn}>
+                <TouchableOpacity
+                  style={styles.iconButton}
+                  onPress={() => handleEdit(p)}
+                >
+                  <MaterialIcons name="edit" size={24} color="#BFA440" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.iconButton}
+                  onPress={() => handleDelete(p._id)}
+                >
+                  <MaterialIcons name="delete" size={24} color="#D32F2F" />
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         ))
       )}
-
       {/* --- Category Selection Modal --- */}
       <Modal
         animationType="slide"
@@ -445,7 +518,6 @@ export default function MenuItemCRUDScreen() {
           <View style={styles.modalView}>
             <Text style={styles.modalTitle}>Select Category</Text>
             <ScrollView style={styles.modalList}>
-              {/* Assuming MENU_CATEGORIES is a simple string array like ['Appetizers', 'Main Course', 'Desserts'] */}
               {MENU_CATEGORIES.map((option, index) => (
                 <TouchableOpacity
                   key={index}
@@ -469,25 +541,7 @@ export default function MenuItemCRUDScreen() {
   );
 }
 
-// --- Custom Components & Styles ---
-
-const CustomTextInput = ({
-  label,
-  isRequired = false,
-  ...props
-}: {
-  label: string;
-  isRequired?: boolean;
-  [key: string]: any;
-}) => (
-  <View style={styles.inputContainer}>
-    <Text style={styles.label}>
-      {label}
-      {isRequired && <Text style={styles.requiredStar}>*</Text>}
-    </Text>
-    <TextInput style={styles.input} placeholderTextColor="#999" {...props} />
-  </View>
-);
+// --- Styles ---
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F0F4F8" },
@@ -555,7 +609,6 @@ const styles = StyleSheet.create({
     color: "#1C1C1C",
   },
 
-  // --- Category & Switch ---
   categoryInput: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -565,7 +618,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 15,
     borderRadius: 10,
-    backgroundColor: "#FFFBEB", // Light gold background
+    backgroundColor: "#FFFBEB",
     marginBottom: 18,
   },
   categoryInputText: { fontSize: 16, color: "#1C1C1C" },
@@ -581,7 +634,6 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f0f0f0",
   },
 
-  // --- Image & Buttons ---
   imageButton: {
     flexDirection: "row",
     backgroundColor: "#BFA440",
@@ -634,7 +686,6 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
 
-  // --- Product Card List ---
   productCard: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -662,7 +713,6 @@ const styles = StyleSheet.create({
   buttonColumn: { justifyContent: "space-around", marginLeft: 10, height: 70 },
   iconButton: { padding: 5 },
 
-  // --- Modal Styles ---
   centeredView: {
     flex: 1,
     justifyContent: "center",
@@ -696,5 +746,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#D32F2F",
     width: "100%",
     marginTop: 15,
+  },
+  accessDeniedText: {
+    fontSize: 16,
+    color: "#888",
+    textAlign: "center",
+    padding: 15,
+    marginTop: 10,
+    backgroundColor: "#F8F9FA",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
   },
 });

@@ -13,16 +13,26 @@ import {
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 
-// ⚠️ IMPORTANT: Adjust paths as necessary for your project structure
+// ⚠️ IMPORTANT: Adjust paths as necessary
 import { fetchMenuItems } from "../store/slices/menuItemSlice";
 import { RootState, AppDispatch } from "../store/store";
-// import { MENU_CATEGORIES } from "./constants"; // Use only if needed
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
-// Define the structure for an item added to the temporary cart
+// --- ROUTE PARAMETER TYPES ---
+type MenuRouteParams = {
+  tableNumber: number;
+};
+type RootStackParamList = {
+  Menu: MenuRouteParams;
+  CreateOrder: any;
+  TableSelection: any;
+};
+type MenuScreenRouteProp = RouteProp<RootStackParamList, "Menu">;
+// -----------------------------
+
 interface CartItem {
   menuItemId: string;
   name: string;
@@ -30,7 +40,6 @@ interface CartItem {
   quantity: number;
 }
 
-// Define the shape of a single item for the list display
 interface MenuItemDisplay {
   _id: string;
   name: string;
@@ -43,45 +52,64 @@ interface MenuItemDisplay {
 
 export default function MenuScreen() {
   const dispatch = useDispatch<AppDispatch>();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
+  const route = useRoute<MenuScreenRouteProp>();
+
+  // 🚨 CRITICAL FIX 2/3: Use defensive destructuring with fallback (tableNumber = null)
+  const { tableNumber = null } = route.params || {};
 
   const {
     items: menuItems,
     status,
     error,
   } = useSelector((state: RootState) => state.menuItem);
-  const { user } = useSelector((state: RootState) => state.auth);
 
-  // --- Local Cart State ---
+  const { user } = useSelector((state: RootState) => state.auth);
+  const isAuthenticated = !!user;
+
   const [orderItems, setOrderItems] = useState<CartItem[]>([]);
 
-  // --- Data Fetching ---
+  // --- Data Fetching: GUARANTEED RELOAD ON SCREEN ENTRY ---
   useEffect(() => {
-    if (status === "idle" || status === "failed") {
+    if (isAuthenticated) {
       dispatch(fetchMenuItems());
     }
-  }, [dispatch, status]);
+  }, [dispatch, isAuthenticated]);
 
-  // Error Handling
+  // --- Reset Cart and Handle Errors ---
   useEffect(() => {
+    if (status === "succeeded") {
+      setOrderItems([]); // Reset cart on successful menu load
+    }
     if (status === "failed" && error) {
       Alert.alert("Menu Load Failed", error);
     }
   }, [status, error]);
 
   const handleOrderPress = (item: MenuItemDisplay) => {
+    if (!item.isAvailable || item.stock <= 0) {
+      Alert.alert("Out of Stock", `${item.name} is currently unavailable.`);
+      return;
+    }
+
     setOrderItems((prevItems) => {
       const existingItemIndex = prevItems.findIndex(
         (cartItem) => cartItem.menuItemId === item._id
       );
 
       if (existingItemIndex > -1) {
-        // If item exists, increase quantity
         const newItems = [...prevItems];
-        newItems[existingItemIndex].quantity += 1;
-        return newItems;
+        if (newItems[existingItemIndex].quantity < item.stock) {
+          newItems[existingItemIndex].quantity += 1;
+          return newItems;
+        } else {
+          Alert.alert(
+            "Stock Limit",
+            `Cannot add more than ${item.stock} of ${item.name}.`
+          );
+          return prevItems;
+        }
       } else {
-        // If item is new, add it
         return [
           ...prevItems,
           {
@@ -104,9 +132,20 @@ export default function MenuScreen() {
       return;
     }
 
-    // 📢 Navigate to the Order Creation screen, passing the cart data
+    // Safety check for table number
+    if (tableNumber === null) {
+      Alert.alert(
+        "Error",
+        "Table selection failed. Please select a table first."
+      );
+      navigation.navigate("TableSelection");
+      return;
+    }
+
+    // 🚨 CRITICAL FIX 3/3: Ensure 'tableNumber' is passed here
     navigation.navigate("CreateOrder", {
       orderItems: orderItems,
+      tableNumber: tableNumber,
     });
   };
 
@@ -119,7 +158,9 @@ export default function MenuScreen() {
     const primaryImageUrl =
       item.images?.[0] ||
       "https://placehold.co/100x100/e0e0e0/555555?text=Dish";
+
     const isOutOfStock = !item.isAvailable || item.stock <= 0;
+
     const currentCartQty =
       orderItems.find((cartItem) => cartItem.menuItemId === item._id)
         ?.quantity || 0;
@@ -143,7 +184,7 @@ export default function MenuScreen() {
           <Text style={styles.name} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={styles.category}>{item.category}</Text>
+          <Text style={styles.category}>{item.category || "General"}</Text>
 
           <View style={styles.priceRow}>
             <Text style={styles.price}>₹{Number(item.price).toFixed(2)}</Text>
@@ -174,11 +215,45 @@ export default function MenuScreen() {
     );
   }
 
+  // --- Unauthorized/Unauthenticated State ---
+  if (!isAuthenticated) {
+    return (
+      <View style={styles.unauthorizedContainer}>
+        <Ionicons name="alert-circle-outline" size={60} color="#D32F2F" />
+        <Text style={styles.emptyText}>Access Denied</Text>
+        <Text style={styles.emptySubtitle}>
+          Please log in as a Vendor or Staff member to view this menu.
+        </Text>
+      </View>
+    );
+  }
+
+  // --- Missing Parameter/Navigation Error State ---
+  if (tableNumber === null) {
+    return (
+      <View style={styles.unauthorizedContainer}>
+        <Ionicons name="tablet-landscape-outline" size={60} color="#D32F2F" />
+        <Text style={styles.emptyText}>Table Not Selected</Text>
+        <Text style={styles.emptySubtitle}>
+          Please go back and select a table to begin ordering.
+        </Text>
+        <TouchableOpacity
+          style={styles.reloadButton}
+          onPress={() => navigation.navigate("TableSelection")}
+        >
+          <Text style={styles.reloadButtonText}>Go to Table Select</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Restaurant Menu</Text>
-        <Text style={styles.headerSubtitle}>Role: {user?.role}</Text>
+        <Text style={styles.headerTitle}>Order for Table {tableNumber}</Text>
+        <Text style={styles.headerSubtitle}>
+          Logged in as: **{user?.role || "Staff"}**
+        </Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -188,16 +263,19 @@ export default function MenuScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="restaurant-outline" size={60} color="#ccc" />
             <Text style={styles.emptyText}>The menu is currently empty.</Text>
-            <Text style={styles.emptySubtitle}>
-              A Vendor must add items to the shop's menu.
-            </Text>
             <TouchableOpacity
               style={styles.reloadButton}
               onPress={() => dispatch(fetchMenuItems())}
+              disabled={status === "loading"}
             >
-              <Text style={styles.reloadButtonText}>Refresh</Text>
+              <Text style={styles.reloadButtonText}>Refresh Menu</Text>
             </TouchableOpacity>
           </View>
+        )}
+        {status === "failed" && (
+          <Text style={styles.fetchErrorText}>
+            Failed to load menu: {error}
+          </Text>
         )}
       </ScrollView>
 
@@ -206,6 +284,7 @@ export default function MenuScreen() {
         <TouchableOpacity
           style={styles.checkoutButton}
           onPress={handleCheckout}
+          activeOpacity={0.8}
         >
           <Ionicons name="receipt-outline" size={24} color="#fff" />
           <Text style={styles.checkoutButtonText}>
@@ -231,7 +310,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#F0F4F8",
   },
-  scrollContent: { padding: 15, paddingBottom: 100 }, // Increased padding for floating button
+  unauthorizedContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+    backgroundColor: "#fff",
+  },
+  scrollContent: { padding: 15, paddingBottom: 100 },
 
   header: {
     padding: 20,
@@ -246,7 +332,6 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 14, color: "#C5E1A5", marginTop: 4 },
   loadingText: { marginTop: 10, fontSize: 16, color: "#005612" },
 
-  // --- Card Styles ---
   card: {
     flexDirection: "row",
     backgroundColor: "#ffffff",
@@ -314,13 +399,12 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
 
-  // --- Checkout Button ---
   checkoutButton: {
     position: "absolute",
     bottom: 20,
     left: 20,
     right: 20,
-    backgroundColor: "#D32F2F", // Red for emphasis
+    backgroundColor: "#D32F2F",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -340,7 +424,6 @@ const styles = StyleSheet.create({
   },
   checkoutPrice: { color: "#fff", fontSize: 20, fontWeight: "bold" },
 
-  // --- Empty State ---
   emptyState: {
     padding: 40,
     alignItems: "center",
@@ -370,4 +453,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   reloadButtonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  fetchErrorText: {
+    textAlign: "center",
+    color: "#D32F2F",
+    marginTop: 20,
+    fontSize: 14,
+    fontWeight: "500",
+  },
 });
