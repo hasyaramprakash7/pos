@@ -544,7 +544,7 @@ export default function MenuItemCRUDScreen() {
 // --- Styles ---
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F0F4F8" },
+  container: { flex: 1, backgroundColor: "#F8F5F0" },
   contentContainer: { padding: 20 },
   header: {
     flexDirection: "row",

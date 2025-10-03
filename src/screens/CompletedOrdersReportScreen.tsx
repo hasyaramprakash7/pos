@@ -365,12 +365,12 @@ export default function CompletedOrdersReportScreen() {
 
 // --- New Styles for Report Screen ---
 const reportStyles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F0F4F8" },
+  container: { flex: 1, backgroundColor: "#F8F5F0" },
   centeredView: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F0F4F8",
+    backgroundColor: "#F8F5F0",
   },
   loadingText: { marginTop: 10, fontSize: 16, color: "#005612" },
 

@@ -21,22 +21,22 @@ export default function KitchenDashboardScreen() {
   const userName = user?.username || "Chef";
 
   // --- Placeholder Stats (Replace with real data fetch if necessary) ---
-  const stats = [
-    { label: "Incoming Orders", value: 3, icon: "schedule" },
-    { label: "Items to Prep", value: 45, icon: "restaurant" },
-    { label: "Avg Prep Time", value: "8 min", icon: "timer" },
-  ];
+  // const stats = [
+  //   { label: "Incoming Orders", value: 3, icon: "schedule" },
+  //   { label: "Items to Prep", value: 45, icon: "restaurant" },
+  //   { label: "Avg Prep Time", value: "8 min", icon: "timer" },
+  // ];
 
   return (
     <View style={styles.container}>
       {/* --- Dedicated Header for Kitchen Staff --- */}
-      <View style={styles.header}>
-        <Text style={styles.greetingText}>Welcome back, {userName}!</Text>
+      {/* <View style={styles.header}>
+         <Text style={styles.greetingText}>Welcome back, {userName}!</Text>
         <Text style={styles.headerTitle}>Kitchen Command Center</Text>
-      </View>
+      </View> */}
 
       {/* --- Operational Stats Bar --- */}
-      <View style={styles.statsBar}>
+      {/* <View style={styles.statsBar}>
         {stats.map((stat, index) => (
           <View key={index} style={styles.statBox}>
             <MaterialIcons name={stat.icon as any} size={20} color="#005612" />
@@ -44,7 +44,7 @@ export default function KitchenDashboardScreen() {
             <Text style={styles.statLabel}>{stat.label}</Text>
           </View>
         ))}
-      </View>
+      </View> */}
 
       {/* --- KOT Board View --- */}
       <View style={styles.kotContainer}>

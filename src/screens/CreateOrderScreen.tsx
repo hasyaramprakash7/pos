@@ -16,9 +16,8 @@ import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 
 // ⚠️ IMPORTANT: Adjust paths as necessary
 import { createOrder } from "../store/slices/orderSlice";
-// Assuming you have an action to fetch the active order
-// If this doesn't exist, you MUST add it to your orderSlice
-// import { fetchActiveOrderForTable } from "../store/slices/orderSlice";
+// Assuming you have an action to fetch a single order by ID
+// import { fetchOrderById } from "../store/slices/orderSlice";
 import { RootState, AppDispatch } from "../store/store";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -29,7 +28,6 @@ interface CartItem {
   name: string;
   price: number;
   quantity: number;
-  // Assuming existing items might have a status/notes from the server
   notes?: string;
   status?: string;
 }
@@ -39,14 +37,14 @@ interface ActiveOrder {
   _id: string;
   status: string;
   totalAmount: number;
-  items: CartItem[]; // Server items may have more detail
-  // Add other relevant fields (e.g., createdAt, isPaid)
+  items: CartItem[];
 }
 
 // Define the structure of the route parameters
 type CreateOrderRouteParams = {
   orderItems: CartItem[];
-  tableNumber: number; // Required parameter from MenuScreen
+  tableNumber: number;
+  existingOrderId?: string; // <<-- NEW: Expecting this from TableSelection
 };
 
 type RootStackParamList = {
@@ -62,44 +60,55 @@ export default function OrderConfirmationScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<CreateOrderScreenRouteProp>();
 
-  const { orderItems: localCartItems, tableNumber } = route.params;
+  const {
+    orderItems: localCartItems,
+    tableNumber,
+    existingOrderId, // <<-- Get the existing ID
+  } = route.params;
 
   const { user } = useSelector((state: RootState) => state.auth);
   const userRole = user?.role;
 
-  // Assuming order state management (status/loading)
-  const { status, error } = useSelector((state: RootState) => state.order);
+  const { status } = useSelector((state: RootState) => state.order);
   const isLoading = status === "loading";
 
-  // --- NEW STATE for Existing Order ---
+  // --- STATE for Existing Order ---
   const [activeOrder, setActiveOrder] = useState<ActiveOrder | null>(null);
   const [isOrderLoading, setIsOrderLoading] = useState(false);
   const [activeOrderError, setActiveOrderError] = useState<string | null>(null);
 
-  // --- Notes state remains for NEW items ---
+  // --- Notes state for NEW items ---
   const [itemSpecificNotes, setItemSpecificNotes] = useState<{
     [itemId: string]: string;
   }>({});
 
   // --- Active Order Fetch Logic ---
-  const fetchOrder = async () => {
+  const fetchOrder = async (orderId: string) => {
     setIsOrderLoading(true);
     setActiveOrderError(null);
-    // ⚠️ Replace with your actual Redux thunk call
+
     try {
-      // --- SIMULATED API CALL ---
-      // In a real app:
-      // const response = await dispatch(fetchActiveOrderForTable(tableNumber)).unwrap();
+      // 🚨 REAL IMPLEMENTATION: Use your Redux thunk here to fetch the order by ID
+      // const response = await dispatch(fetchOrderById(orderId)).unwrap();
       // setActiveOrder(response);
 
-      // Simulated response based on table number
-      let simulatedOrder: ActiveOrder | null = null;
-      if (tableNumber === 5 || tableNumber === 10) {
-        simulatedOrder = {
-          _id: `ORD${tableNumber}001`,
-          status: tableNumber === 5 ? "Pending" : "Completed",
-          totalAmount: tableNumber === 5 ? 1500.5 : 2500.0,
+      // --- TEMPORARY MOCK FOR DEMONSTRATION ONLY ---
+      // Simulates finding the order data to match the screenshot scenario
+      let mockOrder: ActiveOrder | null = null;
+      if (orderId === `ORD${tableNumber}001`) {
+        mockOrder = {
+          _id: orderId,
+          status: "Pending",
+          totalAmount: 1551.5,
           items: [
+            {
+              menuItemId: "m002",
+              name: "Existing Sandwich",
+              price: 450.5,
+              quantity: 3,
+              notes: "None",
+              status: "Completed",
+            },
             {
               menuItemId: "m001",
               name: "Existing Coffee",
@@ -108,28 +117,16 @@ export default function OrderConfirmationScreen() {
               notes: "Less sugar",
               status: "Pending",
             },
-            {
-              menuItemId: "m002",
-              name: "Existing Sandwich",
-              price: 450.5,
-              quantity: 3,
-              status: "Completed",
-            },
           ],
         };
       }
-      // --- END SIMULATED API CALL ---
+      setActiveOrder(mockOrder);
+      // --- END TEMPORARY MOCK ---
 
-      setActiveOrder(simulatedOrder);
-      if (simulatedOrder && simulatedOrder.status !== "Completed") {
+      if (mockOrder && mockOrder.status !== "Completed") {
         Alert.alert(
           "Active Order Found",
-          `Table ${tableNumber} has a pending order: ${simulatedOrder.status}.`
-        );
-      } else if (simulatedOrder && simulatedOrder.status === "Completed") {
-        Alert.alert(
-          "Order Completed",
-          `Table ${tableNumber}'s previous order has been completed.`
+          `Table ${tableNumber} already has an active order (${mockOrder.status}). The view below shows the existing order items.`
         );
       }
     } catch (err) {
@@ -141,15 +138,20 @@ export default function OrderConfirmationScreen() {
   };
 
   useEffect(() => {
-    fetchOrder();
-  }, []); // Run only on mount
+    if (existingOrderId) {
+      fetchOrder(existingOrderId);
+    }
+  }, [existingOrderId]);
 
-  // Combine local cart and existing order items for display purposes
-  const displayedItems =
-    activeOrder && activeOrder.status !== "Completed"
-      ? [...activeOrder.items] // Show only existing order if active
-      : localCartItems; // Show local cart for new order
+  // --- CORE LOGIC ---
+  const isActiveOrderFound = activeOrder && activeOrder.status !== "Completed";
 
+  // If an active order is found, display its items. Otherwise, display the local cart.
+  const displayedItems = isActiveOrderFound
+    ? activeOrder!.items
+    : localCartItems;
+
+  // Determine totals based on the currently displayed list
   const totalAmount = displayedItems.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
@@ -161,16 +163,24 @@ export default function OrderConfirmationScreen() {
   );
 
   const handleSubmitOrder = async () => {
+    // ... (Submission logic remains the same) ...
+
     // Prevent submission if an active, uncompleted order exists
-    if (activeOrder && activeOrder.status !== "Completed") {
+    if (isActiveOrderFound) {
       Alert.alert(
         "Order Conflict",
-        `Table ${tableNumber} already has an active order (${activeOrder.status}). You must use a dedicated 'Update Order' screen.`
+        `Table ${tableNumber} already has an active order (${
+          activeOrder!.status
+        }). Use the main button below to manage it.`
       );
       return;
     }
 
-    // 1. Prepare items for backend submission (only uses localCartItems for a new order)
+    if (localCartItems.length === 0) {
+      Alert.alert("Cart Empty", "Cannot send an empty order.");
+      return;
+    }
+
     const finalItems = localCartItems.map((item) => ({
       menuItemId: item.menuItemId,
       quantity: item.quantity,
@@ -192,11 +202,9 @@ export default function OrderConfirmationScreen() {
           {
             text: "OK",
             onPress: () => {
-              if (userRole === "Kitchen") {
-                navigation.navigate("KitchenDashboard");
-              } else {
-                navigation.navigate("OrderManagement");
-              }
+              navigation.navigate(
+                userRole === "Kitchen" ? "KitchenDashboard" : "OrderManagement"
+              );
             },
           },
         ]
@@ -207,10 +215,13 @@ export default function OrderConfirmationScreen() {
   };
 
   const renderItemCard = (item: CartItem, isExisting: boolean) => (
-    <View key={item.menuItemId + item.notes} style={styles.itemCard}>
+    <View
+      key={item.menuItemId + (isExisting ? item._id : item.menuItemId)}
+      style={styles.itemCard}
+    >
       <View style={styles.itemHeader}>
         <Text style={[styles.itemName, isExisting && { color: "#D32F2F" }]}>
-          {item.name} {isExisting && `(${item.status})`}
+          {item.name} {isExisting && item.status && `(${item.status})`}
         </Text>
         <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
         <Text style={styles.itemTotal}>
@@ -239,10 +250,22 @@ export default function OrderConfirmationScreen() {
   );
 
   // Determine the primary action button text
-  const buttonText =
-    activeOrder && activeOrder.status !== "Completed"
-      ? `View Active Order (${activeOrder.status})`
-      : `Send New Order (${localCartItems.length} items)`;
+  const buttonText = isActiveOrderFound
+    ? `View Active Order (${activeOrder!.status})`
+    : `Send New Order (${localCartItems.length} items)`;
+
+  // Determine the action for the main button
+  const handleMainButtonPress = () => {
+    if (isActiveOrderFound) {
+      // Action when an existing order is found: Navigate to management screen
+      navigation.navigate("OrderManagement", {
+        orderIdFilter: activeOrder!._id,
+      });
+    } else {
+      // Action for a new order: Submit the local cart
+      handleSubmitOrder();
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -257,29 +280,34 @@ export default function OrderConfirmationScreen() {
         <Text style={styles.sectionTitle}>Main Table</Text>
         <View style={styles.tableDisplay}>
           <Ionicons name="tablet-landscape-outline" size={24} color="#005612" />
-          <Text style={styles.tableNumberText}>Table **{tableNumber}**</Text>
+          <Text style={styles.tableNumberText}>
+            Table <Text style={styles.boldText}>{tableNumber}</Text>
+          </Text>
         </View>
 
         {/* --- Active Order Check / Reload --- */}
         <View style={styles.statusSection}>
           <Text style={styles.sectionTitle}>
-            {activeOrder && activeOrder.status !== "Completed"
-              ? "ACTIVE ORDER FOUND"
-              : "New Order Items"}
+            {isActiveOrderFound ? "ACTIVE ORDER FOUND" : "New Order Items"}
           </Text>
           <TouchableOpacity
             style={styles.reloadButtonSmall}
-            onPress={fetchOrder}
-            disabled={isOrderLoading}
+            // Reload now fetches based on the existingOrderId if present
+            onPress={() => existingOrderId && fetchOrder(existingOrderId)}
+            disabled={isOrderLoading || !existingOrderId}
           >
-            <Ionicons name="reload" size={18} color="#fff" />
+            {isOrderLoading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="reload" size={18} color="#fff" />
+            )}
             <Text style={styles.reloadButtonText}>Reload</Text>
           </TouchableOpacity>
         </View>
 
         {isOrderLoading ? (
           <ActivityIndicator
-            size="small"
+            size="large"
             color="#005612"
             style={{ marginTop: 20 }}
           />
@@ -290,14 +318,14 @@ export default function OrderConfirmationScreen() {
             {/* Display items: Existing if active, or Local Cart if new */}
             {displayedItems.length === 0 ? (
               <Text style={styles.emptyOrderText}>
-                {activeOrder && activeOrder.status !== "Completed"
-                  ? "Active order exists but contains no items."
+                {isActiveOrderFound
+                  ? `Order #${activeOrder!._id.slice(-4)} has no items yet.`
                   : "Your local cart is empty. Go back to the menu to add items."}
               </Text>
             ) : (
               <View>
                 {displayedItems.map((item) =>
-                  renderItemCard(item, !!activeOrder)
+                  renderItemCard(item, isActiveOrderFound)
                 )}
               </View>
             )}
@@ -315,17 +343,17 @@ export default function OrderConfirmationScreen() {
         </View>
 
         <TouchableOpacity
-          // Submission is only allowed if a new order is being created (activeOrder is null/completed) AND the cart is not empty
           style={[
             styles.submitButton,
-            isLoading ||
-            (activeOrder && activeOrder.status !== "Completed") ||
-            localCartItems.length === 0
+            // Disabled if loading, or if active order is found AND local cart is empty, or if no active order found AND local cart is empty
+            isLoading || (!isActiveOrderFound && localCartItems.length === 0)
               ? styles.disabledButton
               : null,
           ]}
-          onPress={handleSubmitOrder}
-          disabled={isLoading || !!activeOrder || localCartItems.length === 0}
+          onPress={handleMainButtonPress}
+          disabled={
+            isLoading || (!isActiveOrderFound && localCartItems.length === 0)
+          }
         >
           {isLoading ? (
             <ActivityIndicator color="#fff" />
@@ -333,11 +361,15 @@ export default function OrderConfirmationScreen() {
             <Text style={styles.submitButtonText}>{buttonText}</Text>
           )}
         </TouchableOpacity>
+
+        {/* Cancel button always navigates back */}
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.cancelButtonText}>Cancel Order</Text>
+          <Text style={styles.cancelButtonText}>
+            {isActiveOrderFound ? "Go Back to Menu" : "Cancel New Order"}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -346,7 +378,7 @@ export default function OrderConfirmationScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F0F4F8" },
-  scrollContent: { padding: 20, paddingBottom: 120 },
+  scrollContent: { padding: 20, paddingBottom: 160 },
 
   header: {
     paddingBottom: 10,
@@ -386,6 +418,10 @@ const styles = StyleSheet.create({
   },
   tableNumberText: {
     fontSize: 20,
+    fontWeight: "bold",
+    color: "#005612",
+  },
+  boldText: {
     fontWeight: "bold",
     color: "#005612",
   },

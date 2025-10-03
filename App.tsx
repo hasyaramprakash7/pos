@@ -1,3 +1,5 @@
+// App.tsx
+
 import React, { useEffect } from "react";
 import {
   View,
@@ -10,25 +12,27 @@ import { Provider, useSelector, useDispatch } from "react-redux";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 
-// NOTE: These imports rely on files not provided, but are kept for context.
+// NOTE: Please ensure these paths and files exist
 import { store, RootState } from "./src/store/store";
 import LoginScreen from "./src/screens/Auth/LoginScreen";
 import RegisterScreen from "./src/screens/Auth/RegisterScreen";
+// 🚨 FIX: loadInitialAuth is a thunk, logout is a reducer action. Import them correctly.
 import { loadInitialAuth, logout } from "./src/store/slices/authSlice";
 
 // --- IMPORT VENDOR/STAFF MANAGEMENT SCREENS ---
 import VendorStaffManagerScreen from "./src/screens/Vendor/VendorStaffManagerScreen";
-import DashboardScreen from "./src/screens/DashboardScreen";
+// 🚨 IMPORTANT: Import UserTabNavigator (the dashboard UI)
+import UserTabNavigator from "./src/screens/UserTabNavigator"; // 👈 CONFIRM THIS PATH
 import MenuItemCRUDScreen from "./src/screens/MenuItemCRUDScreen";
 
 // 📢 IMPORT CORE WORKFLOW SCREENS
-import TableSelectionScreen from "./src/screens/TableSelectionScreen"; // 🚨 NEW IMPORT: Table Selection
+import TableSelectionScreen from "./src/screens/TableSelectionScreen";
 import MenuScreen from "./src/screens/MenuScreen";
 import CreateOrderScreen from "./src/screens/CreateOrderScreen";
 import OrderManagementScreen from "./src/screens/OrderManagementScreen";
 
 // 📢 IMPORT ROLE-SPECIFIC SCREENS
-import KitchenDashboard from "./src/screens/Staff/KitchenDashboardScreen"; // 🚨 NEW IMPORT: Kitchen Dashboard (Assuming path)
+import KitchenDashboard from "./src/screens/Staff/KitchenDashboardScreen";
 import CompletedOrdersReportScreen from "./src/screens/CompletedOrdersReportScreen";
 
 // --- Stack Navigator Setup ---
@@ -41,7 +45,7 @@ const RootNavigator = () => {
   const dispatch = useDispatch();
 
   useEffect(() => {
-    // Load authentication state from AsyncStorage on app start
+    // Dispatching thunk to load token from AsyncStorage
     dispatch(loadInitialAuth() as any);
   }, [dispatch]);
 
@@ -54,7 +58,6 @@ const RootNavigator = () => {
     );
   }
 
-  // Check user roles for conditional access
   const isUnapprovedStaff = user && user.role !== "Vendor" && !user.isApproved;
   const isVendor = user?.role === "Vendor";
   const isKitchenStaff = user?.role === "Kitchen";
@@ -69,7 +72,8 @@ const RootNavigator = () => {
         </Text>
         <TouchableOpacity
           style={styles.logoutButton}
-          onPress={() => dispatch(logout() as any)}
+          // 🚨 FIX: Dispatch the synchronous logout action correctly
+          onPress={() => dispatch(logout())}
         >
           <Text style={{ color: "#856404", fontWeight: "bold" }}>Log Out</Text>
         </TouchableOpacity>
@@ -84,9 +88,15 @@ const RootNavigator = () => {
     >
       {isAuthenticated ? (
         <Stack.Group>
-          <Stack.Screen name="Dashboard" component={DashboardScreen} />
+          {/* 🚀 THE MAIN DASHBOARD - This is the Tab Navigator */}
+          <Stack.Screen
+            name="Dashboard"
+            component={UserTabNavigator} // 👈 This renders the navigation bar
+            options={{ headerShown: false }}
+          />
 
-          {/* 🚨 NEW: KITCHEN DASHBOARD (Dedicated screen for Kitchen staff) */}
+          {/* ... all other Stack.Screens for deep linking/modals */}
+
           {isKitchenStaff && (
             <Stack.Screen
               name="KitchenDashboard"
@@ -99,7 +109,6 @@ const RootNavigator = () => {
             />
           )}
 
-          {/* 🚨 NEW: TABLE SELECTION (Entry point for all new orders) */}
           <Stack.Screen
             name="TableSelection"
             component={TableSelectionScreen}
@@ -111,20 +120,17 @@ const RootNavigator = () => {
             }}
           />
 
-          {/* ORDERING SCREENS (Menu now follows TableSelection) */}
           <Stack.Screen
             name="Menu"
             component={MenuScreen}
             options={{
               headerShown: true,
-              // Title will be dynamically set by the MenuScreen component
               title: "Add Items to Order",
               headerTintColor: "#005612",
               headerTitleStyle: { fontWeight: "bold" },
             }}
           />
 
-          {/* ORDER CONFIRMATION/CREATION SCREEN */}
           <Stack.Screen
             name="CreateOrder"
             component={CreateOrderScreen}
@@ -135,7 +141,6 @@ const RootNavigator = () => {
             }}
           />
 
-          {/* ORDER MANAGEMENT SCREEN (Order status board) */}
           <Stack.Screen
             name="OrderManagement"
             component={OrderManagementScreen}
@@ -146,7 +151,6 @@ const RootNavigator = () => {
             }}
           />
 
-          {/* SALES REPORT SCREEN (Vendor and Billing access) */}
           {isVendorOrBilling && (
             <Stack.Screen
               name="SalesReports"
@@ -160,7 +164,6 @@ const RootNavigator = () => {
             />
           )}
 
-          {/* CONDITIONAL ROUTES FOR VENDOR MANAGEMENT (Vendor only) */}
           {isVendor && (
             <>
               <Stack.Screen
@@ -196,7 +199,6 @@ const RootNavigator = () => {
   );
 };
 
-// --- Main App Component ---
 export default function App() {
   return (
     <Provider store={store}>
@@ -207,7 +209,7 @@ export default function App() {
   );
 }
 
-// --- Styles for App.tsx Components ---
+// ... styles remain unchanged
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,

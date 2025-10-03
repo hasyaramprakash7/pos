@@ -87,7 +87,11 @@ const getTableStatusProps = (
 const formatDateTime = (dateString: string | Date | undefined): string => {
   if (!dateString) return "N/A";
   try {
-    const date = new Date(dateString);
+    // Ensure we are working with a Date object, even if the input is a string
+    const date = new Date(dateString); 
+    if (isNaN(date.getTime())) { // Check for "Invalid Date"
+        return "Invalid Date";
+    }
 
     // Options for localized date/time display
     const options: Intl.DateTimeFormatOptions = {
@@ -279,7 +283,10 @@ export default function TableSelectionScreen() {
                 {/* Order ID and Status Pill */}
                 <View style={styles.orderDetailRow}>
                   <Text style={styles.orderDetailText}>
-                    Order ID: **#{order._id.slice(-4)}**
+                    Order ID:{" "}
+                    <Text style={styles.boldText}>
+                        #{order._id.slice(-4)}
+                    </Text>
                   </Text>
                   <View
                     style={[
@@ -296,7 +303,10 @@ export default function TableSelectionScreen() {
                 {/* 🚨 New Row for Date and Time */}
                 <View style={styles.orderDetailRow}>
                   <Text style={styles.orderPlacedText}>
-                    Placed: **{orderDateTime}**
+                    Placed:{" "}
+                    <Text style={styles.boldText}>
+                        {orderDateTime}
+                    </Text>
                   </Text>
                 </View>
 
@@ -377,7 +387,15 @@ export default function TableSelectionScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Table Order Management</Text>
         <Text style={styles.subHeaderUser}>
-          Logged in as: **{user?.name || "Staff"}** ({user?.role || "Server"})
+          Logged in as:{" "}
+          <Text style={styles.boldText}>
+            {user?.name || "Staff"}
+          </Text>{" "}
+          (
+          <Text style={styles.boldText}>
+            {user?.role || "Server"}
+          </Text>
+          )
         </Text>
         <Text style={styles.subHeader}>
           {isLoading && !refreshing
@@ -421,6 +439,9 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginTop: 8,
     fontWeight: "600",
+  },
+  boldText: { // 💡 Style for rendering bold text inline
+    fontWeight: "bold",
   },
   scrollContent: {
     flexDirection: "column",

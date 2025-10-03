@@ -1,4 +1,4 @@
-import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, PayloadAction, isAnyOf } from '@reduxjs/toolkit';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 import axios, { AxiosError } from 'axios';
 // 1. Import the configuration file
@@ -42,6 +42,7 @@ const initialState: AuthState = {
 // --- Storage Utilities (Async) ---
 
 const saveAuthData = async (token: string, user: User) => {
+    // Keys 'token' and 'user' must match the load/clear functions
     await AsyncStorage.setItem('token', token);
     await AsyncStorage.setItem('user', JSON.stringify(user));
 };
@@ -52,9 +53,11 @@ const clearAuthData = async () => {
     AsyncStorage.removeItem('user');
 };
 
-// --- ASYNC THUNK: Load Initial State ---
+// --- ASYNC THUNK: Load Initial State (Revisions here) ---
 /**
  * Thunk to load initial authentication state from AsyncStorage on app startup.
+ * Enhanced error handling to ensure if the token loads but the user object is corrupted, 
+ * the app stays logged in if possible, but still sets isAppReady to true.
  */
 export const loadInitialAuth = createAsyncThunk<
     { token: string | null, user: User | null },
@@ -62,18 +65,33 @@ export const loadInitialAuth = createAsyncThunk<
     { rejectValue: string }
 >('auth/loadInitialAuth', async (_, { rejectWithValue }) => {
     try {
+        // Step 1: Load the token first. This is the primary indicator of authentication.
         const token = await AsyncStorage.getItem('token');
-        const userJson = await AsyncStorage.getItem('user');
         
         let user: User | null = null;
-        if (userJson) {
-            user = JSON.parse(userJson) as User;
-        }
+        
+        if (token) {
+            // Step 2: If token exists, try to load and parse the user object.
+            const userJson = await AsyncStorage.getItem('user');
 
+            if (userJson) {
+                try {
+                    // Attempt to parse the user data
+                    user = JSON.parse(userJson) as User;
+                } catch (jsonError) {
+                    console.error('Failed to parse stored user data (corrupted user JSON):', jsonError);
+                    // If parsing fails, we log the error but proceed with user: null
+                    // The token is still valid, so we return it.
+                }
+            }
+        }
+        
+        // Return whatever was successfully loaded. If token is null, both are null.
         return { token, user };
-    } catch (error) {
-        // Log the error but proceed with empty state
-        console.error('Failed to load initial auth data:', error);
+        
+    } catch (storageError) {
+        // This catch block handles low-level AsyncStorage errors (rare but possible)
+        console.error('Failed to load initial auth data from storage:', storageError);
         return { token: null, user: null };
     }
 });
@@ -128,6 +146,7 @@ export const loginUser = createAsyncThunk<
         const res = await axios.post(`${AUTH_BASE_URL}/login`, loginData);
         const payload = res.data as AuthSuccessPayload;
 
+        // CRITICAL: Ensure the token is saved here on successful login
         await saveAuthData(payload.token, payload.user); 
 
         return payload;
@@ -172,6 +191,8 @@ const authSlice = createSlice({
                 state.user = action.payload.user;
                 state.isAuthenticated = !!action.payload.token;
                 state.isAppReady = true; // Set app ready after loading storage
+                state.isLoading = false; // Ensure loading is off
+                state.error = null; // Clear previous errors
             })
             .addCase(loadInitialAuth.rejected, (state) => {
                 // If the thunk fails to load (e.g. AsyncStorage error), reset state
@@ -179,6 +200,8 @@ const authSlice = createSlice({
                 state.token = null;
                 state.user = null;
                 state.isAppReady = true; // Still set app ready even if loading failed
+                state.isLoading = false;
+                state.error = 'Failed to read persistent storage.';
             });
             
         // --- Login Thunk Handlers ---

@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     alignItems: "center",
-    backgroundColor: "#F0F4F8",
+    backgroundColor: "#F8F5F0",
   },
   header: {
     fontSize: 24,

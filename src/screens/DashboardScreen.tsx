@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     padding: 25,
     paddingTop: Platform.OS === "android" ? 60 : 30,
-    backgroundColor: "#F0F4F8",
+    backgroundColor: "#F8F5F0",
     alignItems: "center",
   },
   vendorIdSection: {
