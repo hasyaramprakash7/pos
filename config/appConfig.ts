@@ -10,12 +10,12 @@ interface AppConfig {
 const apiUrlFromConfig = Constants.expoConfig?.extra?.API_URL as string | undefined;
 
 const dev: AppConfig = {
-    apiUrl: apiUrlFromConfig || "http://192.168.29.106:5000/api", // Fallback for dev
+    apiUrl: apiUrlFromConfig || "http:/10.210.255.2:5000/api", // Fallback for dev
     googleMapsApiKey: "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c", // Replace with your actual key
 };
-
+// http://192.168.29.106:5000
 const prod: AppConfig = {
-    apiUrl: apiUrlFromConfig || "https://bluxurybackend.onrender.com/api", // Replace with your production URL
+    apiUrl: apiUrlFromConfig || "https://pos-backend-tvek.onrender.com/api", // Replace with your production URL
     googleMapsApiKey: "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c", // Replace with your actual key
 };
 

@@ -79,9 +79,10 @@ export const loadInitialAuth = createAsyncThunk<
                     // Attempt to parse the user data
                     user = JSON.parse(userJson) as User;
                 } catch (jsonError) {
+                    // ⚠️ FIX: Log this specific error, which indicates corrupted user data
                     console.error('Failed to parse stored user data (corrupted user JSON):', jsonError);
                     // If parsing fails, we log the error but proceed with user: null
-                    // The token is still valid, so we return it.
+                    // The isAuthenticated check in the reducer will handle this as a failure.
                 }
             }
         }
@@ -189,10 +190,19 @@ const authSlice = createSlice({
             .addCase(loadInitialAuth.fulfilled, (state, action) => {
                 state.token = action.payload.token;
                 state.user = action.payload.user;
-                state.isAuthenticated = !!action.payload.token;
+                
+                // 🚀 THE FIX: Set isAuthenticated to true ONLY if both token AND user are present
+                state.isAuthenticated = !!action.payload.token && !!action.payload.user;
+                
                 state.isAppReady = true; // Set app ready after loading storage
                 state.isLoading = false; // Ensure loading is off
                 state.error = null; // Clear previous errors
+
+                // If token exists but user is null (due to parse error), clear storage to prevent future issues
+                if (action.payload.token && !action.payload.user) {
+                    console.warn("Token loaded, but user data corrupted. Clearing AsyncStorage for a clean start.");
+                    clearAuthData();
+                }
             })
             .addCase(loadInitialAuth.rejected, (state) => {
                 // If the thunk fails to load (e.g. AsyncStorage error), reset state
